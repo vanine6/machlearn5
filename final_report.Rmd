@@ -1,0 +1,164 @@
+---
+title: "Practical Machine Learning - Peer Assessment Report"
+author: "Marcos Vanine Nader"
+date: "June 21, 2015"
+output: html_document
+---
+## Abstract
+
+Nowadays, many people practice workouts in gyms. The qualitative analysis of workouts becomes important because only exercises performed correctly are the ones who contribute to the development and well-being. In this sense, researchers have been working on using current technologies of wearable for performance data collection and the discipline of machine learning to characterize the correctness or error type for a particular practice (quality). Performance data were collected from a small population simulating the quality classes of the execution of the exercises, to be used as reference. This paper develops a machine learning algorithm that, when put into practice, allows predicting the quality class using the data collected from practitioner´s wearable.
+
+# Project Objective
+
+This document contains the development of a prediction model based on data collected four wearable devices in six participants practicing physical exercises into five categories, one correct and the other four featuring some types of error. Having the solution proposed (a prediction algorithm), it is possible, collecting data of an individual practicing physical exercises to determine the type of qualification. 
+
+# Sources
+
+[1] Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3dGTdZ3fa
+
+[2] James G., Witten D., Hastie T., Tibshirani R., An Introduction to Statistical Learning with Applications in R, Springer, 2013.
+
+[3] Course Lectures - Practical Machine Learning - Coursera.org - June of 2015.
+
+# Machine Learning Algorithm Development
+
+### Methodology
+
+In the development process, we experienced some alternatives for filters, parameters and methods. We decided to have one sulution, called reference solution, which is one that we used to submit the result to the Coursera site.
+
+In the following sections, we describe in the main flow the reference solution, including its code in the R language and the results obtained during the executions. At each step of the reference solution, we will make consideration of the alternatives that have been tried.
+
+At the end of the document, we present a table comparing the results obtained for the reference and each experience that we took.
+
+### Reading Input Data
+
+The data available for the project are two files, called training and testing. The training file should be used for the development while the testing file is used to submit results for evaluation.
+
+The training file contains 19,622 observations of 160 columns - 159 input variables and a variable named "classe" which is the outcome. This file is partitioned to be training and testing data sets for the development process. The testing file structure contains 20 cases and 160 variables, which correspond to the training file input variables, except that the last variable is the identification of the test instead of the class.
+
+As nomenclature, we will be using the testing data set to describe the training file partition used to test the model during the development and testing file to reference the file used after obtaining the final model in order to submit the result for evaluation 
+
+In the process of reading the files, we consider as NA in R language, the strings "# DIV / 0!", "NA" and empty fields. The following is the code for reading the files.
+
+
+```{r init, include=FALSE, warning = FALSE, message=FALSE}
+set.seed(30032013)
+library(caret)
+library(randomForest)
+```
+
+```{r read_data}
+paw_dataset<-read.csv2("pml-training.csv", sep=",", dec=".", na.strings=c("#DIV/0!", "NA", ""))
+dim(paw_dataset)
+paw_finaltest<-read.csv2("pml-testing.csv", sep=",", dec=".", na.strings=c("#DIV/0!", "NA", ""))
+dim(paw_finaltest)
+```
+
+### Cleanup
+Analyzing the column names in the data set, we see that some have values that should not be used by the algoritms to determine the outcome. These columns are the columns 1 to 7. Thease columns are shown below.
+
+```{r columns_excluded}
+colnames(paw_dataset)[1:7]
+```
+
+Thus, the first cleanup work is to create a new data set with only the columns 8-160.
+
+```{r cleanup1}
+paw_dataset2<-paw_dataset[,8:160]
+dim(paw_dataset2)
+```
+
+Still within the cleanup step, we chose to delete the columns that have NA in more than 97% of cases. This is a suggestion from the discussion forum in order to eliminate noises such as the collumns that only apply for rows representing window summaries.
+
+
+```{r cleanup2}
+ncn<-vector(length=dim(paw_dataset2)[2])
+lim <-dim(paw_dataset2)[1] * 0.97
+for (i in 1:dim(paw_dataset2)[2]) {
+    ncn[i]<-sum(is.na(paw_dataset2[,i])) <= lim
+}
+paw_dataset3<-paw_dataset2[,ncn]
+dim(paw_dataset3)
+```
+
+As seen in the above code, the result of the cleanup is 53 features.
+
+### Features Selection
+
+Feature selection is an important step in the development process [3] to obtain a simplified model, which allows a better interpretation, lower training data sets and lower overfitting.
+
+Initially, we executed the train function with only 10% of the training data set and then extracted the most important features and sorted them. For the reference solution, we decided to select 17 features, as suggested by the work done in [1] (although the methodology is different). As an alternative, we also worked with 3 features. The result of the prediction with 17 features is better, as can be seen in the Comparing Results section.
+
+The code below contains the steps executed for feature selection. At last command, we list the 17 features used (For the 3 features alteranative, we used the first three listed)
+
+```{r featutes_selection, cache=TRUE}
+fs_itrain<-createDataPartition (y=paw_dataset3$classe, p=0.1, list=FALSE)
+fs_training<-paw_dataset3[fs_itrain,]
+print(Sys.time())
+fs_modFit<-train(classe~.,data=fs_training,method="rf", trTrain=trainControl(method="cv", 5))
+print(Sys.time())
+fs_varImp<-varImp(fs_modFit,scale=FALSE)
+fs_names<-rownames(fs_varImp$importance)[order(fs_varImp$importance, decreasing=TRUE)][1:17]
+fs_names
+```
+
+### Training and testing data sets
+
+In this section, we create the data sets to be used in the implementation of training and model testing. As suggested in [3] is selected, set the training data set with 60% of cases, leaving 40% for the tests.
+
+```{r dataset4}
+paw_dataset4<-paw_dataset3[,append(fs_names,"classe")]
+paw_itrain4<-createDataPartition(y=paw_dataset4$classe, p=0.6, list=FALSE)
+paw_training4<-paw_dataset4[paw_itrain4,]
+dim(paw_training4)
+paw_testing4<-paw_dataset4[-paw_itrain4,]
+dim(paw_testing4)
+```
+
+### Executing Train and Test 
+
+For the reference solution, we use the Random Forest method. We also run other methods such as, Boosting (gbm), Bagging (bagtree) and Model Based (LDA). 
+
+As the train control function parameter, we chose the cross-validation method with 5-fold and 10-fold. In the reference [2], the authors suggest that using these values has the advantages: reasonable processing time and bias-variance tradeoff. 
+
+Despite the result of using 10-fold be slightly better than 5-fold, we chose the latter because the processing time for 10-fold is much higher - which would prevent us to doing other experiments in a timely manner.
+
+The code below contains the execution of the  train function the model for the reference solution. Then we performed the prediction for the test data set and generate the confusion matrix to evaluate the model accuracy.
+
+
+```{r train, cache=TRUE, dependson=c("create_tt")}
+print(Sys.time())
+paw_modFit4<-train(classe~.,data=paw_training4, method="rf", trControl=trainControl(method="cv", 5))
+print(Sys.time())
+paw_modFit4
+paw_pred4<-predict(paw_modFit4, paw_testing4)
+paw_confMat4<-confusionMatrix(paw_pred4,paw_testing4$classe)
+paw_confMat4
+```
+
+### Generating the Result to be Submitted
+
+Finally, in order to generate the results to be submitted for evaluation, we run the prediction function for the pml-testing file with  20 rows and the model generated by the reference solution.
+
+```{r result}
+paw_pred4F<-predict(paw_modFit4, paw_finaltest)
+paw_pred4F
+```
+
+### Comparing Results
+
+The following table contains a summary reference solution and the alternative approaches.
+
+Internal ID | name | Number of Features | k-Fold CV | Learning Method | Accuracy
+----------- | ---- | ------------------ | --------- | --------------- | --------
+ 4 | Reference Soultion | 17 |  5 | rf       | 0.988
+11 | 3-Feature          |  3 |  5 | rf       | 0.856
+12 | 10-Fold            | 17 | 10 | rf       | 0.990
+13 | Boosting           | 17 |  5 | gbm      | 0.949
+14 | Bagging            | 17 |  5 | bagtree  | 0.985
+15 | Model Based        | 17 |  5 | lda      | 0.551
+
+
+
